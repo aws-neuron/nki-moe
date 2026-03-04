@@ -46,7 +46,7 @@ Optional:
                                  Options: trn2, trn3
   -P, --prompt PROMPT            Prompt text (default: "I believe the meaning of life is")
   -s, --seq-len LENGTH           Sequence length (default: 640)
-  -q, --qwen-module MODULE       Qwen module name (default: qwen)
+  -q, --qwen-module MODULE       Qwen model processing module name (default: qwen)
                                  Examples: qwen, qwen_optimized, qwen_with_nki
   -a, --target-account-id ID     AWS account ID for S3 bucket (default: 195034363981)
   -S, --submission-id ID         Submission identifier (default: auto-generated timestamp)
@@ -153,7 +153,7 @@ echo "Mode:          $MODE"
 echo "Platform:      $PLATFORM"
 echo "Prompt:        $PROMPT"
 echo "Sequence Len:  $SEQ_LEN"
-echo "Qwen Module:   $QWEN_MODULE"
+echo "Qwen Module File: $QWEN_MODULE.py"
 echo "Submission ID: $SUBMISSION_ID"
 echo "Upload to S3:  $UPLOAD_TO_S3"
 # compute the S3 bucket name for uploading artifacts
@@ -196,38 +196,38 @@ fi
 
 # NEW: Validate qwen module file
 QWEN_FILE="${QWEN_MODULE}.py"
-log_step "Validating Submitted Qwen Module: $QWEN_FILE"
+log_step "ATTENTION: Validating Submitted QWEN Module Script: $QWEN_FILE"
 
 # Check if qwen module file exists
 if [ ! -f "$SCRIPT_DIR/$QWEN_FILE" ]; then
-    log_error "Qwen module file not found: $QWEN_FILE"
+    log_error "Qwen module source file not found: $QWEN_FILE"
     log_error "Expected location: $SCRIPT_DIR/$QWEN_FILE"
     exit 1
 fi
 
-log_info "✓ File exists: $QWEN_FILE"
+log_info "✓ QWEN Script file exists: $QWEN_FILE"
 
 # Check if file is readable
 if [ ! -r "$SCRIPT_DIR/$QWEN_FILE" ]; then
-    log_error "Qwen module file is not readable: $QWEN_FILE"
+    log_error "QWEN module source file is not readable: $QWEN_FILE"
     exit 1
 fi
 
-log_info "✓ File is readable"
+log_info "✓ QWEN Script File is readable"
 
 # Validate Python3 syntax
-log_info "Validating QWEN library Python3 syntax..."
+log_info "Validating QWEN Script File  Python3 syntax..."
 if ! python3 -m py_compile "$SCRIPT_DIR/$QWEN_FILE" 2>/dev/null; then
-    log_error "Python syntax validation failed for: $QWEN_FILE"
-    log_error "Please fix syntax errors in your qwen module"
+    log_error "Python syntax validation failed for submitted Script file: $QWEN_FILE"
+    log_error "Please fix syntax errors in your QWEN module"
     python3 -m py_compile "$SCRIPT_DIR/$QWEN_FILE"
     exit 1
 fi
 
-log_info "✓ QWEN library Python3 syntax is valid"
+log_info "✓ QWEN Script File Python3 syntax is valid - proceeding to security checks..."
 
 # Security checks - scan for dangerous patterns
-log_info "Performing QWEN library security checks..."
+log_info "Performing QWEN Script File library security checks..."
 SECURITY_ISSUES=0
 
 # Check for dangerous imports
@@ -270,11 +270,11 @@ fi
 FILE_SIZE=$(stat -f%z "$SCRIPT_DIR/$QWEN_FILE" 2>/dev/null || stat -c%s "$SCRIPT_DIR/$QWEN_FILE" 2>/dev/null)
 MAX_SIZE=$((10 * 1024 * 1024))
 if [ "$FILE_SIZE" -gt "$MAX_SIZE" ]; then
-    log_error "File size exceeds 10MB limit: $(($FILE_SIZE / 1024 / 1024))MB"
+    log_error "Submitted QWEN Script File size exceeds 10MB limit: $(($FILE_SIZE / 1024 / 1024))MB"
     exit 1
 fi
 
-log_info "✓ QWEN library File size: $(($FILE_SIZE / 1024))KB"
+log_info "✓ Submitted QWEN Script File size: $(($FILE_SIZE / 1024))KB"
 
 # Summary
 if [ $SECURITY_ISSUES -eq 0 ]; then
@@ -284,7 +284,7 @@ else
     log_warn "Review and resolve warnings above before proceeding to tests!"
 fi
 
-echo "END QWEN library security check"
+echo "END QWEN Script File library security check"
 echo ""
 
 # Check AWS CLI if upload is enabled
@@ -311,7 +311,7 @@ log_info "Starting Inference Benchmarking at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
 # Build Python command
-PYTHON_CMD="python3 main.py \
+PYTHON_CMD="python3  main.py\
     --mode $MODE \
     --team-id $TEAM_ID \
     --member-id $MEMBER_ID \
@@ -324,7 +324,7 @@ if [ "$MODE" = "evaluate_single" ] || [ "$MODE" = "validate" ] || [ "$MODE" = "g
     PYTHON_CMD="$PYTHON_CMD --prompt \"$PROMPT\""
 fi
 
-log_step "Executing Inference performance evaluation..."
+log_step "Executing QWEN Model Inference performance evaluation..."
 log_info "Command: $PYTHON_CMD"
 echo "=================================================="
 
@@ -332,10 +332,10 @@ echo "=================================================="
 cd "$SCRIPT_DIR"
 if eval $PYTHON_CMD; then
     EXIT_CODE=0
-    log_info "Evaluation completed successfully"
+    log_info "Evaluation completed successfully!"
 else
     EXIT_CODE=$?
-    log_error "Evaluation failed with exit code $EXIT_CODE"
+    log_error "Evaluation failed with exit code $EXIT_CODE!"
 fi
 
 echo ""
