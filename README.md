@@ -9,7 +9,7 @@ For full details on the competition, read [the competition guidelines](https://g
 We are introducing multiple rounds for the competition. 
 
 ### Round one: Trn2 in March
-Round one of the competition focuses on Trn2. We will take submissions from March 15-25, taking the top teams on performance. The evaluation environment will use Neuron SDK 2.28 with a single Trn2 chip.
+Round one of the competition focuses on Trn2. We will take submissions from March 15-25, evaluating teams on performance. The evaluation environment will use Neuron SDK 2.28 with a single Trn2 chip. The top 15 teams from round one will move on to round two.
 
 ### Round two: Trn3 in April
 Round two of the competition focuses on Trn3. We will take submissions from April 14-24. Each of the top 15 teams from round one will receive access to a dedicated single-chip Trn3 instance. The evaluation environment will use Neuron SDK 2.28 with a single Trn3 chip.
