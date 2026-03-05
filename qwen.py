@@ -36,7 +36,7 @@ from transformers import Qwen3MoeForCausalLM
 from transformers.generation import SampleDecoderOnlyOutput, SampleEncoderDecoderOutput
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm
 
-from neuronx_distributed_inference.models.config import InferenceConfig, MoENeuronConfig, SHARD_ON_INTERMEDIATE_DIMENTION_PER_TP, MOE_TKG_MK_INTERMEDIATE_PER_TP
+from neuronx_distributed_inference.models.config import InferenceConfig, MoENeuronConfig, MOE_TKG_MK_INTERMEDIATE_PER_TP
 from neuronx_distributed_inference.models.model_wrapper import CONTEXT_ENCODING_MODEL_TAG, TOKEN_GENERATION_MODEL_TAG
 from neuronx_distributed_inference.modules.attention.attention_base import NeuronAttentionBase
 from neuronx_distributed_inference.modules.attention.utils import RotaryEmbedding

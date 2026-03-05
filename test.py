@@ -1,4 +1,5 @@
 import subprocess
+import csv
 
 
 def parse_prompts(filepath):
@@ -9,13 +10,12 @@ def parse_prompts(filepath):
 
 
 def parse_prompt_data(filepath):
-    with open(filepath, 'r') as file:
-        content = file.read()
-
-    blocks = content.split('\n')
-    if blocks[-1] == '':
-        blocks = blocks[0:-1]
-    return [block.split(',') for block in blocks]
+    with open(filepath, 'r', newline='') as file:
+        reader = csv.reader(file)
+        next(reader)  # Skip the header row
+        rows = list(reader)
+    
+    return rows
 
 def parse_prompts_as_dict(filepath):
     '''

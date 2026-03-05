@@ -1,0 +1,6 @@
+Prompt ID, Context Length, Sequence Length, Base latency, Base throughput
+0,18,64,12498,51.86
+1,126,256,9432.19,70.24
+2,43,128,12089.08,54.40
+3,10,64,12868.67,50.89
+4,402,640,3041.92,217.74

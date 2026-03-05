@@ -504,7 +504,8 @@ def calculate_score(base_latency, base_throughput, accuracy, latency, throughput
     increased_throughput = throughput / base_throughput
     reduced_latency = base_latency / latency
 
-    final_score = accuracy * reduced_latency * increased_throughput * (1 + nki_flop_ratio)
+    # resetting nki_flop_ratio as the baseline solution uses NKI completely
+    final_score = accuracy * reduced_latency * increased_throughput * nki_flop_ratio
 
     print ('In this final score of ', final_score, ' the contestant got a breakdown as follows.')
     print ('accuracy: ', accuracy)
@@ -633,7 +634,7 @@ def main():
         accuracy = 1
         
         prompts = parse_prompts("prompts.txt")
-        prompt_data = parse_prompt_data("prompt_data_trn2.txt")
+        prompt_data = parse_prompt_data("prompt_data_trn2.csv")
         assert len(prompts) == len(prompt_data)
 
         total_score = 0
@@ -675,7 +676,7 @@ def main():
         base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
         
         prompts = parse_prompts("prompts.txt")
-        prompt_data = parse_prompt_data("prompt_data_trn3.txt")
+        prompt_data = parse_prompt_data("prompt_data_trn3.csv")
         assert len(prompts) == len(prompt_data)
 
         total_score = 0
