@@ -144,7 +144,9 @@ class NKIRMSNorm(nn.Module):
             raise ValueError(f"Expected input with at least 2 dimensions, got {x.dim()}D")
         
         # Call NKI kernel directly
-        output = nki_rmsnorm_kernel(x, self.weight, self.eps)
+        # .view(-1) materializes PlaceholderParameter into a real torch.Tensor
+        # during torch_neuronx tracing, so NKI's tracer can introspect it
+        output = nki_rmsnorm_kernel(x, self.weight.view(-1), self.eps)
         
         # Reshape back to original shape
         output = output.view(original_shape)
