@@ -145,6 +145,18 @@ while [[ $# -gt 0 ]]; do
             UPLOAD_TO_S3=true
             shift
             ;;
+        --model-path)
+            MODEL_PATH="$2"
+            shift 2
+            ;;
+        --compiled-model-path)
+            COMPILED_MODEL_PATH="$2"
+            shift 2
+            ;;
+        --skip-compile)
+            SKIP_COMPILE=true
+            shift
+            ;;
         -h|--help)
             print_usage
             exit 0
@@ -181,6 +193,9 @@ echo "Trainium Platform:      $PLATFORM"
 echo "Prompt:        $PROMPT"
 echo "Sequence Len:  $SEQ_LEN"
 echo "Qwen Module File: $QWEN_MODULE.py"
+echo "Model Path:    $MODEL_PATH"
+echo "Compiled Path: $COMPILED_MODEL_PATH"
+echo "Skip Compile:  $SKIP_COMPILE"
 echo "Submission ID: $SUBMISSION_ID"
 echo "Upload to S3 bucket:  $UPLOAD_TO_S3"
 
@@ -353,7 +368,7 @@ PYTHON_CMD=(python3 main.py
     --compiled-model-path "$COMPILED_MODEL_PATH"
 )
 
-# Add skip-compile flag if enabled
+# Add skip-compile flag ONLY if enabled
 if [ "$SKIP_COMPILE" = true ]; then
     PYTHON_CMD+=(--skip-compile)
 fi
