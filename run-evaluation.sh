@@ -80,8 +80,8 @@ Examples:
 
   # Custom paths without skipping compile
   $0 -t TEAM-1234 -m john@company.com \
-  --model-path /data/models/Qwen3-30B-A3B/hf_model \
-  --compiled-model-path /data/models/Qwen3-30B-A3B/traced_model
+  --model-path /path/qwen3-30B-A3B/hf_model \
+  --compiled-model-path /path/qwen3-30B-A3B/traced_model
 
   # Combined with other flags (NKI module, S3 upload, trn3 platform)
   $0 -t TEAM-1234 -m john@company.com \
