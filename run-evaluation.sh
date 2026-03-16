@@ -93,6 +93,12 @@ Examples:
 EOF
 }
 
+# CHECK: clean up previous compile results to avoid potential assertion errors
+ rm -rf /var/tmp/neuron-compile-cache/*
+ rm -rf ~/Qwen3-30B-A3B/traced_model/
+ echo "CHECK: Neuron compile cache and traced model data are cleaned up.."
+ echo "..."
+
 # set the Python3 environment and wait
  source /opt/aws_neuronx_venv_pytorch_2_9_nxd_inference/bin/activate
  echo ""
