@@ -20,7 +20,7 @@ Round two of the competition focuses on Trn3. We will take submissions from Apri
 3. This file will be invoked by `main.py`, exactly in the same way contained within the repository.
 4. The evaluation environment will already have this repository cloned within a Neuron SDK 2.28 environment. Participants do not need to install any packages already contained within the repository.
 5. The contest organizers will expose a submission url on March 23.
-6. It is not necessary to submit technical documentation, we will only require this of the winning teams.
+6. It is not necessary to submit technical documentation at this time; we will only require this of the winning teams.
 
 ## Getting Started
 
