@@ -93,12 +93,6 @@ Examples:
 EOF
 }
 
-# CHECK: clean up previous compile results to avoid potential assertion errors
- rm -rf /var/tmp/neuron-compile-cache/*
- rm -rf ~/Qwen3-30B-A3B/traced_model/
- echo "CHECK: Neuron compile cache and traced model data are cleaned up.."
- echo "..."
-
 # set the Python3 environment and wait
  source /opt/aws_neuronx_venv_pytorch_2_9_nxd_inference/bin/activate
  echo ""
@@ -205,6 +199,12 @@ echo "Skip Compile:  $SKIP_COMPILE"
 echo "Submission ID: $SUBMISSION_ID"
 echo "Upload to S3 bucket:  $UPLOAD_TO_S3"
 
+# CHECK: clean up previous compile results to avoid potential assertion errors
+ rm -rf /var/tmp/neuron-compile-cache/*
+ rm -rf "$COMPILED_MODEL_PATH"
+ echo "CHECK: Neuron compile cache and traced model data are cleaned up.."
+ echo "..."
+ 
 # compute the S3 bucket name for uploading artifacts
 if [ "$UPLOAD_TO_S3" = true ]; then
     #S3_BUCKET="nki-moe-leaderboard-dev-submissions-${TARGET_ACCOUNT_ID}"
@@ -364,7 +364,7 @@ echo ""
 
 # Build Python command as an array for safe argument handling
 #  --seq-len "$SEQ_LEN"
-#  --qwen "$QWEN_MODULE"
+#  Needed for proper CSV file generation --qwen "$QWEN_MODULE"
 PYTHON_CMD=(python3 main.py
     --mode "$MODE"
     --team-id "$TEAM_ID"
@@ -372,6 +372,7 @@ PYTHON_CMD=(python3 main.py
     --platform-target "$PLATFORM"
     --model-path "$MODEL_PATH"
     --compiled-model-path "$COMPILED_MODEL_PATH"
+    --qwen "$QWEN_MODULE"
 )
 
 # Add skip-compile flag ONLY if enabled
@@ -531,11 +532,17 @@ if [ -f "$SCRIPT_DIR/$CSV_FILENAME" ]; then
         log_info "To Download files:"
         echo "  aws s3 cp ${S3_PATH} . --recursive"
         echo ""
+
+        # Now remove uploaded CSV file
+	    rm "$SCRIPT_DIR/$CSV_FILENAME"
+	    log_info "Removed generated metrics file: $SCRIPT_DIR/$CSV_FILENAME"
+	    echo "---------------------------------------------------------"
+	
     fi
     
 else
     log_warn "CSV metrics file not found: $CSV_FILENAME"
-    log_info "The CSV metrics file may not have been created if evaluation failed"
+    log_info "The CSV inference metrics file may not have been created if evaluation failed"
 fi
 
 
