@@ -1,4 +1,4 @@
-"""Driver script for NKI contests"""
+"""Driver script for NKI contests - Extended with inference_demo.py arguments"""
 import argparse
 import ast
 import base64
@@ -7,6 +7,7 @@ import json
 import os
 import time
 import torch
+from enum import Enum
 
 from torch_neuronx.pyhlo.hlo_pb2 import HloModuleProto
 from torch_neuronx.testing.validation import logit_validation
@@ -14,6 +15,7 @@ from transformers import AutoTokenizer, GenerationConfig
 
 from neuronx_distributed_inference.models.config import OnDeviceSamplingConfig, to_torch_dtype
 from neuronx_distributed_inference.modules.generation.sampling import prepare_sampling_params
+from neuronx_distributed_inference.utils import argparse_utils
 from neuronx_distributed_inference.utils.accuracy import get_generate_outputs
 from neuronx_distributed_inference.utils.hf_adapter import load_pretrained_config, HuggingFaceGenerationAdapter
 
@@ -28,6 +30,19 @@ from neuronx_distributed_inference.models.qwen3_moe import modeling_qwen3_moe as
 import importlib
 
 from test import parse_prompts, parse_prompt_data
+
+
+class QuantizationType(Enum):
+    PER_TENSOR_SYMMETRIC = "per_tensor_symmetric"
+    PER_CHANNEL_SYMMETRIC = "per_channel_symmetric"
+    BLOCKWISE_SYMMETRIC = "blockwise_symmetric"
+    EXPERT_WISE_PER_CHANNEL_SYMMETRIC = "expert_wise_per_channel_symmetric"
+
+
+class ActivationQuantizationType(Enum):
+    DYNAMIC = "dynamic"
+    NONE = None
+
 
 BENCHMARK_REPORT_FILENAME = "benchmark_report.json"
 
@@ -63,11 +78,13 @@ def parse_args():
     parser.add_argument("--do-sample", type=bool, default=True)
     parser.add_argument("--dynamic", action="store_true")
     parser.add_argument("--pad-token-id", type=int, default=2)
+    parser.add_argument("--top-k-kernel-enabled", action="store_true", default=False)
 
     # Basic config
     parser.add_argument("--torch-dtype", type=to_torch_dtype, default="bfloat16")
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--padding-side", type=str)
+    parser.add_argument("--allow-input-truncation", action="store_true") 
     parser.add_argument("--seq-len", type=int, default=640)
     parser.add_argument("--n-active-tokens", type=int)
     parser.add_argument("--n-positions", type=int)
@@ -75,16 +92,28 @@ def parse_args():
     parser.add_argument("--max-new-tokens", type=int)
     parser.add_argument("--max-length", type=int)
     parser.add_argument("--rpl-reduce-dtype", type=to_torch_dtype)
+    parser.add_argument("--attention-dtype", type=to_torch_dtype)
     parser.add_argument("--output-logits", action="store_true")
     parser.add_argument("--vocab-parallel", action="store_true")
-    parser.add_argument("--skip-compile", type=bool, default=False)
-    parser.add_argument("--save_sharded_checkpoint", type=bool, default=True)
-    parser.add_argument("--platform-target", type=str, default='trn2') 
+    parser.add_argument("--layer-boundary-markers", action="store_true", default=False)
+    parser.add_argument("--platform-target", type=str, default='trn2')
 
     # Attention
     parser.add_argument("--fused-qkv", action="store_true")
     parser.add_argument("--sequence-parallel-enabled", action="store_true")
+    parser.add_argument("--weight-gather-seq-len-threshold", type=int)
     parser.add_argument("--flash-decoding-enabled", action="store_true")
+
+    # Continuous batching
+    parser.add_argument("--ctx-batch-size", type=int)
+    parser.add_argument("--tkg-batch-size", type=int)
+    parser.add_argument("--max-batch-size", type=int)
+    parser.add_argument("--is-continuous-batching", action="store_true")
+
+    # KV cache
+    parser.add_argument("--kv-cache-batch-size", type=int)
+    parser.add_argument("--kv-cache-padding-size", type=int)
+    parser.add_argument("--disable-kv-cache-tiling", action="store_true")
 
     # On device sampling
     parser.add_argument("--on-device-sampling", action="store_true")
@@ -93,19 +122,143 @@ def parse_args():
     parser.add_argument("--enable-bucketing", type=bool, default=True)
     parser.add_argument("--bucket-n-active-tokens", action="store_true")
     parser.add_argument("--context-encoding-buckets", nargs="+", type=int)
+    parser.add_argument("--prefix-buckets", nargs="+", type=int)
     parser.add_argument("--token-generation-buckets", nargs="+", type=int)
+
+    # Quantization
+    parser.add_argument("--quantized", action="store_true")
+    parser.add_argument("--quantized-checkpoints-path", type=str)
+    parser.add_argument("--quantization-type", type=str, choices=[t.value for t in QuantizationType])
+    parser.add_argument("--kv-cache-quant", action="store_true")
+    parser.add_argument("--quantization-dtype", type=str)
+    parser.add_argument("--modules-to-not-convert-file", type=get_modules_to_not_convert_json,
+                        dest="modules_to_not_convert_lists")
+
+    # MoE
+    parser.add_argument("--capacity-factor", type=float)
+    parser.add_argument("--early-expert-affinity-modulation", action="store_true")
+    parser.add_argument("--disable-normalize-top-k-affinities", action="store_true")
+    parser.add_argument("--fused-shared-experts", action="store_true")
+
+    # Router Config
+    parser.add_argument("--router-act-fn", type=str)
+    parser.add_argument("--router-dtype", type=str)
+
+    # Speculative decoding
+    parser.add_argument("--draft-model-path", type=str)
+    parser.add_argument("--draft-model-tp-degree", type=int, default=None)
+    parser.add_argument("--compiled-draft-model-path", type=str)
+    parser.add_argument("--enable-fused-speculation", action="store_true", default=False)
+    parser.add_argument("--enable-eagle-speculation", action="store_true", default=False)
+    parser.add_argument("--enable-eagle-draft-input-norm", action="store_true", default=False)
+    parser.add_argument("--speculation-length", type=int)
+    parser.add_argument("--spec-batch-size", type=int)
+
+    # Medusa decoding
+    parser.add_argument("--is-medusa", action="store_true")
+    parser.add_argument("--medusa-speculation-length", type=int)
+    parser.add_argument("--num-medusa-heads", type=int)
+    parser.add_argument("--medusa-tree-json", type=load_json_file, dest="medusa_tree")
+
+    # Token Tree
+    parser.add_argument("--token-tree-json", type=load_json_file, dest="token_tree_config")
 
     # Parallelism
     parser.add_argument("--tp-degree", type=int, default=4)
+    parser.add_argument("--cp-degree", type=int)
+    parser.add_argument("--mlp-cp-degree", type=int)
+    parser.add_argument("--attention-dp-degree", type=int)
+    parser.add_argument("--pp-degree", type=int)
+    parser.add_argument("--ep-degree", type=int)
+    parser.add_argument("--moe-tp-degree", type=int, default=1)
+    parser.add_argument("--moe-ep-degree", type=int, default=1)
+    parser.add_argument("--world-size", type=int)
+    parser.add_argument("--start_rank_id", type=int)
+    parser.add_argument("--local_ranks_size", type=int)
+    parser.add_argument("--enable-torch-dist", action="store_true")
+    parser.add_argument("--save-sharded-checkpoint", action="store_true")
+    parser.add_argument("--skip-sharding", action="store_true")
+
+    # PA and CF
+    parser.add_argument("--enable-block-kv-layout", dest="is_block_kv_layout", action="store_true")
+    parser.add_argument("--pa-num-blocks", type=int)
+    parser.add_argument("--pa-block-size", type=int)
+    parser.add_argument("--enable-chunked-prefill", dest="is_chunked_prefill", action="store_true")
+    parser.add_argument("--enable-prefix-caching", dest="is_prefix_caching", action="store_true")
+    parser.add_argument("--max-num-seqs", type=int)
+
+    # Async
+    parser.add_argument("--async-mode", action="store_true")
+
+    # Windowed Context Encoding
+    parser.add_argument("--windowed-context-encoding-size", type=int)
+
+    # Lora
+    parser.add_argument("--enable-lora", action="store_true")
+    parser.add_argument("--enable-dynamic-multi-lora", action="store_true")
+    parser.add_argument("--max-loras", type=int, default=1)
+    parser.add_argument("--max-lora-rank", type=int, default=16)
+    parser.add_argument("--target-modules", nargs="+")
+    parser.add_argument("--max-cpu-loras", type=int, default=1)
+    parser.add_argument("--lora-ckpt-path", dest="lora_ckpt_paths", type=str, action="append")
+    parser.add_argument("--lora-ckpt-path-cpu", dest="lora_ckpt_paths_cpu", type=str, action="append")
+    parser.add_argument("--lora-ckpt-json", dest="lora_ckpt_json", type=str, default=None)
+    parser.add_argument("--adapter-id", dest="adapter_ids", type=str, action="append")
 
     # Kernels
     parser.add_argument("--qkv-kernel-enabled", action="store_true")
+    parser.add_argument("--qkv-nki-kernel-enabled", action="store_true")
+    parser.add_argument("--qkv-cte-nki-kernel-fuse-rope", action="store_true")
+    parser.add_argument("--qkv-kernel-nbsd-layout", action="store_true")
     parser.add_argument("--attn-kernel-enabled", action="store_true")
+    parser.add_argument("--strided-context-parallel-kernel-enabled", action="store_true")
     parser.add_argument("--mlp-kernel-enabled", action="store_true")
+    parser.add_argument("--mlp-tkg-nki-kernel-enabled", action="store_true")
     parser.add_argument("--quantized-mlp-kernel-enabled", action="store_true")
+    parser.add_argument("--fused-rmsnorm-skip-gamma", action="store_true")
+    parser.add_argument("--activation-quantization-type", type=str, choices=[e.value for e in ActivationQuantizationType])
     parser.add_argument("--rmsnorm-quantize-kernel-enabled", action="store_true")
-    parser.add_argument("--quantized-kernel-lower-bound", type=float, default=1200.0)
+    parser.add_argument("--quantize-clamp-bound", type=float, default=float("inf"))
     parser.add_argument("--mlp-kernel-fuse-residual-add", action="store_true")
+    parser.add_argument("--qkv-kernel-fuse-residual-add", action="store_true")
+    parser.add_argument("--attn-tkg-nki-kernel-enabled", action="store_true")
+    parser.add_argument("--attn-tkg-builtin-kernel-enabled", action="store_true")
+    parser.add_argument("--attn-block-tkg-nki-kernel-enabled", action="store_true")
+    parser.add_argument("--attn-block-tkg-nki-kernel-cascaded-attention", action="store_true")
+    parser.add_argument("--attn-block-tkg-nki-kernel-cache-update", action="store_true")
+    parser.add_argument("--attn-block-cte-nki-kernel-enabled", action="store_true")
+    parser.add_argument("--k-cache-transposed", action="store_true")
+    parser.add_argument("--is-eagle3", action="store_true")
+
+    # Logical NeuronCore Configuration (LNC)
+    parser.add_argument("--logical-neuron-cores", type=int)
+    parser.add_argument("--logical-nc-config", type=int)
+
+    # Compiler Args
+    parser.add_argument("--cc-pipeline-tiling-factor", type=int, default=2)
+    parser.add_argument("--enable-spill-reload-dge", action="store_true")
+    parser.add_argument("--scratchpad-page-size", type=int)
+
+    # CPU
+    parser.add_argument("--on-cpu", action="store_true")
+
+    # Report generation
+    parser.add_argument("--benchmark-report-path", type=str, default=BENCHMARK_REPORT_FILENAME)
+
+    # Debugging
+    parser.add_argument("--capture-indices", nargs="+", type=int, action=argparse_utils.StringOrIntegers, default=None)
+    parser.add_argument("--input-capture-save-dir", type=str, default=None)
+    parser.add_argument("--cast-type", choices=["config", "as-declared"], default="config")
+
+    # Optional demo arguments
+    parser.add_argument("--skip-warmup", action="store_true")
+    parser.add_argument("--skip-compile", action="store_true")
+    parser.add_argument("--compile-only", action="store_true")
+    parser.add_argument("--compile-dry-run", action="store_true")
+    parser.add_argument("--hlo-debug", action="store_true")
+    parser.add_argument("--apply-seq-ids-mask", action='store_true')
+    parser.add_argument("--input-start-offsets", nargs="+", default=None, type=int)
+    parser.add_argument("--enable-output-completion-notifications", action='store_true')
 
     return parser.parse_args()
 
@@ -114,6 +267,25 @@ def validate_file_exists(path):
     if not os.path.exists(path) or not os.path.isfile(path):
         raise argparse.ArgumentError("Path must exist and be a file")
     return path
+
+
+def load_json_file(json_path):
+    with open(json_path, "r") as f:
+        return json.load(f)
+
+
+def get_modules_to_not_convert_json(json_path):
+    modules_to_not_convert, draft_model_modules_to_not_convert = None, None
+    assert os.path.exists(json_path), f"File not found: {json_path}"
+    data = load_json_file(json_path)
+    if "model" in data:
+        modules_to_not_convert = data["model"]["modules_to_not_convert"]
+    elif "modules_to_not_convert" in data:
+        modules_to_not_convert = data["modules_to_not_convert"]
+    # Handle draft model modules if they exist
+    if "draft_model" in data:
+        draft_model_modules_to_not_convert = data["draft_model"]["modules_to_not_convert"]
+    return modules_to_not_convert, draft_model_modules_to_not_convert
 
 
 def load_tokenizer(model_path, compiled_model_path, neuron_config):
@@ -145,11 +317,11 @@ def prepare_inference(model_cls, args):
     if not args.skip_compile:
 
         # Compile and save model.
-        # to do, add save sharded checkpoint here 
+        # to do, add save sharded checkpoint here
         compiling_start_time = time.monotonic()
         print("\nCompiling and saving model...")
-        model.compile(args.compiled_model_path, debug=False)
-    
+        model.compile(args.compiled_model_path, debug=args.hlo_debug if hasattr(args, 'hlo_debug') else False)
+
         compiling_end_time = time.monotonic()
         total_compiling_time = compiling_end_time - compiling_start_time
         print(f"Compiling and tracing time: {total_compiling_time} seconds")
@@ -197,7 +369,7 @@ def generate_submodule_reports(latency_collectors, neuron_config, num_runs):
 def benchmark_sampling(model, tokenizer, generation_config, prompts):
 
     print ('Beginning benchmark sampling')
-    
+
     neuron_config = model.neuron_config
 
     sampling_params = prepare_sampling_params(
@@ -221,7 +393,7 @@ def benchmark_sampling(model, tokenizer, generation_config, prompts):
     modified_generation_config = copy.deepcopy(generation_config)
     if model.on_device_sampling:
         modified_generation_config.eos_token_id = []
-    
+
     inputs = tokenizer(prompts, padding=True, return_tensors="pt")
     input_ids = inputs.input_ids
     attention_mask = inputs.attention_mask
@@ -261,13 +433,13 @@ def benchmark_sampling(model, tokenizer, generation_config, prompts):
         neuron_config.max_batch_size,
         n_runs=e2e_benchmark.num_runs,
     )
-        
+
     report.update(
         generate_submodule_reports(
             latency_collectors, neuron_config, e2e_benchmark.num_runs
         )
     )
-    
+
     model.reset()
 
     print("Benchmark completed and its result is as following")
@@ -499,7 +671,7 @@ def count_nki_flop_ratio(hlo_path_context_enc, hlo_path_token_gen):
 
 
 def calculate_score(base_latency, base_throughput, accuracy, latency, throughput, nki_flop_ratio):
-    
+
 
     increased_throughput = throughput / base_throughput
     reduced_latency = base_latency / latency
@@ -512,11 +684,11 @@ def calculate_score(base_latency, base_throughput, accuracy, latency, throughput
     print ('reduced_latency: ', reduced_latency)
     print ('increased throughput: ',  increased_throughput)
     print ('nki flop ratio: ', nki_flop_ratio)
-    
+
     return final_score
 
 def find_hlos():
-    
+
     # this path is defined by default NxD, the string matching works with Neuron SDK 2.27
     enc_dir = '/tmp/nxd_model/context_encoding_model/_tp0_bk0'
     ctx_enc = [f for f in os.listdir(enc_dir) if 'hlo_module' in f.lower()]
@@ -536,7 +708,7 @@ def main():
     args = parse_args()
     if not args.prompts:
         args.prompts = ["I believe the meaning of life is"]
-        
+
     args.batch_size = len(args.prompts)
     args.max_length = args.seq_len
     args.tol_map = "{None: (1e-5, 0.05), 1000: (1e-5, 0.03), 50: (1e-5, 0.03), 5: (1e-5, 0.03)}"
@@ -546,11 +718,11 @@ def main():
         print("Loading qwen_with_nki module (NKI-accelerated RMSNorm enabled)")
         qwen = importlib.import_module("qwen_with_nki")
     else:
-        qwen = importlib.import_module(args.qwen)   
+        qwen = importlib.import_module(args.qwen)
 
     if args.mode == "generate":
         model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
-        
+
         run_generation(
             model,
             tokenizer,
@@ -562,9 +734,9 @@ def main():
         if args.platform_target == 'trn2':
             print ('Validation not supported for trn2, exiting.')
             quit()
-            
+
         model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
-        
+
         base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
 
         passed = run_accuracy_check(
@@ -585,13 +757,13 @@ def main():
     elif args.mode == "evaluate_single":
 
         if args.platform_target == 'trn2':
-            
+
             model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
 
             accuracy = 1
-            
-        elif args.platform_target == 'trn3': 
-        
+
+        elif args.platform_target == 'trn3':
+
             model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
 
             base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
@@ -628,21 +800,21 @@ def main():
         )
 
     elif args.mode == 'evaluate_all' and args.platform_target == 'trn2':
-        
+
         model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
 
         accuracy = 1
-        
+
         prompts = parse_prompts("prompts.txt")
         prompt_data = parse_prompt_data("prompt_data_trn2.csv")
         assert len(prompts) == len(prompt_data)
 
         total_score = 0
 
-        # to do - move both of these calls into batch mode 
+        # to do - move both of these calls into batch mode
         # Iterate through the prompts
         for i, prompt in enumerate(prompts):
-            
+
             data = prompt_data[i]
             base_latency = float(data[3])
             base_throughput = float(data[4])
@@ -653,7 +825,7 @@ def main():
             throughput = report["e2e_model"]["throughput"]
 
             ctx_enc_hlo_path, tkg_gen_hlo_path = find_hlos()
-    
+
             nki_flop_ratio = count_nki_flop_ratio(ctx_enc_hlo_path, tkg_gen_hlo_path)
 
             score = calculate_score(base_latency, base_throughput, accuracy, latency, throughput, nki_flop_ratio)
@@ -668,13 +840,13 @@ def main():
             total_score += score
 
         print(f"\nTotal Score: {total_score}\n")
-        
+
     elif args.mode == "evaluate_all" and args.platform_target == 'trn3':
-        
+
         model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
 
         base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
-        
+
         prompts = parse_prompts("prompts.txt")
         prompt_data = parse_prompt_data("prompt_data_trn3.csv")
         assert len(prompts) == len(prompt_data)
@@ -683,11 +855,11 @@ def main():
 
         # Iterate through the prompts
         for i, prompt in enumerate(prompts):
-            
+
             data = prompt_data[i]
             base_latency = float(data[3])
             base_throughput = float(data[4])
-            
+
             accuracy = run_accuracy_check(
                 base_model,
                 base_generation_config,
@@ -706,7 +878,7 @@ def main():
             throughput = report["e2e_model"]["throughput"]
 
             ctx_enc_hlo_path, tkg_gen_hlo_path = find_hlos()
-    
+
             nki_flop_ratio = count_nki_flop_ratio(ctx_enc_hlo_path, tkg_gen_hlo_path)
 
             score = calculate_score(base_latency, base_throughput, accuracy, latency, throughput, nki_flop_ratio)
@@ -730,18 +902,18 @@ def main():
 
         # Iterate through the prompts
         for i, prompt in enumerate(prompts):
-        
+
             inputs = tokenizer(args.prompts, padding=True, return_tensors="pt")
             initial_input_ids = inputs.input_ids
             initial_attention_mask = inputs.attention_mask
             seq_len = base_model.config.neuron_config.seq_len
-            
+
             base_model.config.neuron_config.max_new_tokens = seq_len - initial_input_ids.shape[1]
-            
+
             base_model_generative = HuggingFaceGenerationAdapter(base_model)
-            
-            new_tokens = base_model.config.neuron_config.max_new_tokens 
-            
+
+            new_tokens = base_model.config.neuron_config.max_new_tokens
+
             with torch.inference_mode():
                 outputs = base_model_generative.generate(
                     input_ids=initial_input_ids,
@@ -753,12 +925,12 @@ def main():
                     output_scores=True,
                     generation_config=base_generation_config,
                 )
-                
+
             expected_logits = torch.stack(outputs.scores)
-    
-            # write logits to a file 
+
+            # write logits to a file
             torch.save(expected_logits, f'expected_logits_{i}.pt')
-        
+
     else:
         assert False, "Undefined mode"
 
