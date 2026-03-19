@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>AWS Trainium2/3 MoE Kernel Challenge</title>
+    <meta name="description" content="AWS Trainium2/3 MoE Kernel Challenge — MLSys 2026 Competition Track. Optimize inference performance with custom NKI kernels for the Qwen3-30B-A3B Mixture of Experts model.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="logo.png">
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+  </head>
+
+  <body>
+
+    <header id="header">
+      <div class="header-inner">
+        <div class="header-brand">
+          <img src="logo.png" alt="NKI MoE Logo" class="logo">
+          <div class="header-titles">
+            <h1>AWS Trainium2/3 MoE Kernel Challenge</h1>
+            <span class="subtitle">MLSys 2026 Competition Track</span>
+          </div>
+        </div>
+        <nav>
+          <ul class="main-menu">
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#participate">How to Participate</a></li>
+            <li><a href="#scoring">Scoring</a></li>
+            <li><a href="#leaderboard">Leaderboard</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="container">
+      <div id="content">
+
+        <!-- OVERVIEW -->
+        <div id="overview" class="content-region hide">
+          <div class="section-header">
+            <h2>AWS Trainium2/3 MoE Kernel Challenge</h2>
+            <p class="lead">
+              Write custom kernels using the <strong>Neuron Kernel Interface (NKI)</strong> to maximize inference performance for the <strong>Qwen3-30B-A3B</strong> Mixture of Experts model on AWS Trainium2/3 hardware.
+            </p>
+          </div>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card-icon">&#x26A1;</div>
+              <h3>The Challenge</h3>
+              <p>Optimize MoE model inference by implementing high-performance custom kernels targeting routing logic, expert computation, and attention mechanisms on dedicated AWS Trainium silicon.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">&#x1F3AF;</div>
+              <h3>The Goal</h3>
+              <p>Maximize a combined score based on latency reduction, throughput improvement, and NKI implementation coverage — pushing the limits of what's possible on Trainium hardware.</p>
+            </div>
+            <div class="card">
+              <div class="card-icon">&#x1F4BB;</div>
+              <h3>The Hardware</h3>
+              <p>Compete on AWS Trainium2 in Round One, then top teams gain access to dedicated Trainium3 instances for Round Two — all running AWS Neuron SDK 2.28.</p>
+            </div>
+          </div>
+
+          <div class="timeline">
+            <h3>Competition Timeline</h3>
+            <div class="timeline-grid">
+              <div class="timeline-item">
+                <div class="timeline-badge round1">Round 1</div>
+                <div class="timeline-content">
+                  <h4>Trainium2 &mdash; March 15&ndash;25</h4>
+                  <p>Submit optimized NKI kernels evaluated on a single Trn2 chip with Neuron SDK 2.28. The top 15 teams advance to Round Two.</p>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-badge round2">Round 2</div>
+                <div class="timeline-content">
+                  <h4>Trainium3 &mdash; April 14&ndash;24</h4>
+                  <p>Qualified teams receive dedicated single-chip Trn3 instances for further optimization. Final rankings determine competition winners.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="optimization-areas">
+            <h3>Key Optimization Areas</h3>
+            <ul class="area-list">
+              <li><span class="tag">Routing</span> MoE routing and expert selection logic</li>
+              <li><span class="tag">Expert Layers</span> Gate, up, and down projection computations</li>
+              <li><span class="tag">Attention</span> Attention mechanisms adapted for MoE architectures</li>
+              <li><span class="tag">Memory</span> Memory-efficient sparse operations</li>
+            </ul>
+          </div>
+
+          <div class="cta-row">
+            <a href="https://github.com/aws-neuron/nki-moe" class="btn btn-primary" target="_blank" rel="noopener">View on GitHub</a>
+            <a href="mailto:nki-mlsys-2026@amazon.com" class="btn btn-secondary">Contact Us</a>
+          </div>
+        </div>
+
+        <!-- HOW TO PARTICIPATE -->
+        <div id="participate" class="content-region hide">
+          <div class="section-header">
+            <h2>How to Participate</h2>
+            <p class="lead">Get set up and start optimizing. Follow the steps below to prepare your environment and submit your kernels.</p>
+          </div>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-number">1</div>
+              <div class="step-body">
+                <h3>Provision a Trainium2 Instance</h3>
+                <p>Launch an AWS Trainium2 instance with <strong>AWS Neuron SDK v2.27+</strong> and activate the PyTorch 2.9 environment.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">2</div>
+              <div class="step-body">
+                <h3>Download the Model</h3>
+                <p>Pull the <strong>Qwen3-30B-A3B</strong> model weights from Hugging Face using the Hugging Face CLI.</p>
+                <pre><code>huggingface-cli download Qwen/Qwen3-30B-A3B</code></pre>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">3</div>
+              <div class="step-body">
+                <h3>Clone the Repository</h3>
+                <p>Fork or clone the competition repo to access sample kernels, implementation templates, and the benchmarking API.</p>
+                <pre><code>git clone https://github.com/aws-neuron/nki-moe</code></pre>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">4</div>
+              <div class="step-body">
+                <h3>Write Your NKI Kernels</h3>
+                <p>Modify the provided model files with your custom NKI kernels. Sample implementations for tensor addition and RMSNorm are provided as starting points.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-number">5</div>
+              <div class="step-body">
+                <h3>Benchmark &amp; Submit</h3>
+                <p>Use the included benchmarking API to measure your TTFT and throughput at batch size 1. Verify accuracy against the reference implementation, then submit.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="resources">
+            <h3>Resources</h3>
+            <div class="resource-grid">
+              <a href="https://github.com/aws-neuron/nki-moe" class="resource-card" target="_blank" rel="noopener">
+                <strong>GitHub Repository</strong>
+                <span>Sample kernels, templates, benchmarking API</span>
+              </a>
+              <a href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/nki/" class="resource-card" target="_blank" rel="noopener">
+                <strong>NKI Documentation</strong>
+                <span>Official Neuron Kernel Interface docs &amp; tutorials</span>
+              </a>
+              <a href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/tools/neuron-sys-tools/neuron-monitor-user-guide.html" class="resource-card" target="_blank" rel="noopener">
+                <strong>Neuron Explorer</strong>
+                <span>Profiling tool for Trainium workloads</span>
+              </a>
+              <a href="mailto:nki-mlsys-2026@amazon.com" class="resource-card">
+                <strong>Competition Support</strong>
+                <span>nki-mlsys-2026@amazon.com</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCORING -->
+        <div id="scoring" class="content-region hide">
+          <div class="section-header">
+            <h2>Scoring</h2>
+            <p class="lead">Submissions are ranked by a combined score that rewards accuracy, speed, and depth of NKI implementation.</p>
+          </div>
+
+          <div class="formula-box">
+            <h3>Scoring Formula</h3>
+            <div class="formula">
+              Score = Accuracy &times; Reduced Latency &times; Increased Throughput &times; (1 + Normalized NKI FLOPS)
+            </div>
+          </div>
+
+          <div class="scoring-components">
+            <div class="score-card">
+              <h4>Accuracy</h4>
+              <div class="score-type pass-fail">Pass / Fail</div>
+              <p>Output must match the reference implementation within the defined tolerance threshold. Failing accuracy results in a score of 0.</p>
+            </div>
+            <div class="score-card">
+              <h4>Reduced Latency</h4>
+              <div class="score-type multiplier">Multiplier</div>
+              <p>Measured as <strong>Reference TTFT &divide; Submission TTFT</strong>. A 10&times; reduction in Time to First Token yields a 10&times; multiplier.</p>
+            </div>
+            <div class="score-card">
+              <h4>Increased Throughput</h4>
+              <div class="score-type multiplier">Multiplier</div>
+              <p>Measured as <strong>Submission tokens/sec &divide; Reference tokens/sec</strong>. A 2&times; throughput improvement yields a 2&times; multiplier.</p>
+            </div>
+            <div class="score-card">
+              <h4>NKI FLOPS Coverage</h4>
+              <div class="score-type bonus">Bonus</div>
+              <p>Measured as <strong>NKI FLOPS &divide; Total Model FLOPS</strong>. Full NKI coverage (1.0) doubles the bonus factor to 2.0.</p>
+            </div>
+          </div>
+
+          <div class="example-box">
+            <h3>Scoring Example</h3>
+            <p>A submission achieving <strong>10&times; latency reduction</strong>, <strong>2&times; throughput improvement</strong>, and <strong>85% NKI coverage</strong>:</p>
+            <div class="example-calc">
+              1 (pass) &times; 10 (latency) &times; 2 (throughput) &times; (1 + 0.85) = <strong>37 points</strong>
+            </div>
+          </div>
+
+          <div class="eval-notes">
+            <h3>Evaluation Details</h3>
+            <ul>
+              <li>All submissions are evaluated at <strong>batch size 1</strong></li>
+              <li>Round One hardware: Single Trn2 chip, Neuron SDK 2.28</li>
+              <li>Round Two hardware: Single Trn3 chip, Neuron SDK 2.28</li>
+              <li>Top 15 teams from Round One advance to Round Two</li>
+              <li>Team registration is currently closed</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- LEADERBOARD -->
+        <div id="leaderboard" class="content-region hide">
+          <div class="section-header">
+            <h2>Leaderboard</h2>
+            <p class="lead">Live rankings updated as submissions are evaluated. Scores reflect the best submission per team.</p>
+          </div>
+          <div class="leaderboard-wrapper">
+            <iframe
+                width="960"
+                height="720"
+                src="https://us-east-2.quicksight.aws.amazon.com/sn/embed/share/accounts/574143645326/dashboards/90ae35d9-3302-4d3c-b19e-90b8216a1b2b?directory_alias=nki-moe-trn-leaderboard-prod">
+            </iframe>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <footer>
+      <div class="footer-inner">
+        <span>&copy; 2026 Amazon Web Services, Inc. &mdash; MLSys 2026 Competition Track</span>
+        <span><a href="mailto:nki-mlsys-2026@amazon.com">nki-mlsys-2026@amazon.com</a></span>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+
+  </body>
+</html>
