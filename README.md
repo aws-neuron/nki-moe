@@ -8,6 +8,8 @@ For full details on the competition, read [the competition guidelines](https://g
 
 For teams who have already registered, we are excited to share that we are exposing a leaderboard! This will give you a way to upload your script, get results on performance, and see where you stand in the rankings. You'll need to register for the leaderboard submission site [here](https://dutu9c4a6raza.cloudfront.net/). Please note down the team id that is given to you, and email this to the organizers. Once we confirmed that you're already registered, we will enable you within the leaderboard. The leaderboard will take submissions starting 3/23.
 
+For teams who have registered on the leaderboard, the submission page is open [here](https://dutu9c4a6raza.cloudfront.net/submit.html)!
+
 ### Round one: Trn2 in March
 Round one of the competition focuses on Trn2. We will take submissions from March 23-31, evaluating teams on performance. The evaluation environment will use Neuron SDK 2.28 with a single Trn2 chip. The top 15 teams from round one will move on to round two.
 
