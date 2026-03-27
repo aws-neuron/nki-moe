@@ -11,7 +11,7 @@ For teams who have already registered, we are excited to share that we are expos
 For teams who have registered on the leaderboard, the submission page is open [here](https://dutu9c4a6raza.cloudfront.net/submit.html)!
 
 ### Round one: Trn2 in March
-Round one of the competition focuses on Trn2. We will take submissions from March 23-31, evaluating teams on performance. The evaluation environment will use Neuron SDK 2.28 with a single Trn2 chip. The top 15 teams from round one will move on to round two.
+Round one of the competition focuses on Trn2. We will take submissions from March 25-April 3, evaluating teams on performance. The evaluation environment will use Neuron SDK 2.28 with a single Trn2 chip. The top 15 teams from round one will move on to round two.
 
 ### Round two: Trn3 in April
 Round two of the competition focuses on Trn3. We will take submissions from April 14-24. Each of the top 15 teams from round one will receive access to a dedicated single-chip Trn3 instance. The evaluation environment will use Neuron SDK 2.28 with a single Trn3 chip.
