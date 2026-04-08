@@ -10,7 +10,7 @@ For teams who have already registered, we are excited to share that we are expos
 
 For teams who have registered on the leaderboard, the submission page is open [here](https://dutu9c4a6raza.cloudfront.net/submit.html). You can view the results of the leaderboard evaluations [here](https://aws-neuron.github.io/nki-moe/#leaderboard).
 
-### Rount one results
+### Round one results
 
 Congratulations to the following teams for making it to Round Two: 5493, 3459, 7013, 8662, 2598, 9376, 9263, 1784, 7284, 3857, 7356, 6752, 9290, 2374, 8031. We are working on your Trn3 access now, and will provide this within the next few days. If you have not sent us your AWS account ID, please do this asap so we can ensure you have the right access you need.
 
