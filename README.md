@@ -10,8 +10,15 @@ For teams who have already registered, we are excited to share that we are expos
 
 For teams who have registered on the leaderboard, the submission page is open [here](https://dutu9c4a6raza.cloudfront.net/submit.html). You can view the results of the leaderboard evaluations [here](https://aws-neuron.github.io/nki-moe/#leaderboard).
 
-### Round one: Trn2 in March
-Round one of the competition focuses on Trn2. We will take submissions from March 25-April 3, evaluating teams on performance. The evaluation environment will use Neuron SDK 2.28 with a single Trn2 chip. The top 15 teams from round one will move on to round two.
+### Rount one results
+
+Congratulations to the following teams for making it to Round Two: 5493, 3459, 7013, 8662, 2598, 9376, 9263, 1784, 7284, 3857, 7356, 6752, 9290, 2374, 8031. We are working on your Trn3 access now, and will provide this within the next few days. If you have not sent us your AWS account ID, please do this asap so we can ensure you have the right access you need.
+
+We are also updating the leaderboard system now to run on Trn3. We'll be updating the baseline solution to use the latest Neuron SDK release in the next few days, please watch the repo to pull this down in your tests. The leaderboard will reopen early next week to take your Trn3 submissions, and will remain open through April 24. This date will not be extended, please ensure you make at least one submission early so you can be sure you have a spot.
+
+For those of you who have developed NKI kernels as part of your solution, thank you! We're very excited to see your progress. For those of you who have not, please consider exploring this. Performance alone will count for 85% of your total score, but the remaining 15% will come from NKI kernel innovation.
+
+We will also be making additional credit codes available. Please reach out to us at nki-mlsys-2026@amazon.com with any questions.
 
 ### Round two: Trn3 in April
 Round two of the competition focuses on Trn3. We will take submissions from April 14-24. Each of the top 15 teams from round one will receive access to a dedicated single-chip Trn3 instance. The evaluation environment will use Neuron SDK 2.28 with a single Trn3 chip.
