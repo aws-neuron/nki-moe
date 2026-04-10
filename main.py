@@ -74,7 +74,6 @@ def parse_args():
             "evaluate_all",
             "validate",
             "generate",
-            "generate_accuracy_baselines",
         ],
     )
     parser.add_argument("--qwen", type=str, default="qwen")
