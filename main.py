@@ -1,36 +1,49 @@
 """Driver script for NKI contests - Extended with inference_demo.py arguments"""
+
 import argparse
 import ast
 import base64
 import copy
 import csv
+
+# use this to load the local qwen
+import importlib
 import json
 import os
 import time
-import torch
 from enum import Enum
 
+import torch
+from neuronx_distributed_inference.models.config import (
+    OnDeviceSamplingConfig,
+    to_torch_dtype,
+)
+
+# load the baseline model
+from neuronx_distributed_inference.models.qwen3_moe import (
+    modeling_qwen3_moe as baseline_qwen,
+)
+from neuronx_distributed_inference.modules.generation.sampling import (
+    prepare_sampling_params,
+)
+from neuronx_distributed_inference.utils import argparse_utils
+from neuronx_distributed_inference.utils.accuracy import get_generate_outputs
+from neuronx_distributed_inference.utils.benchmark import (
+    Benchmark,
+    create_submodule_latency_collectors,
+    generate_report,
+    register_latency_collectors,
+)
+from neuronx_distributed_inference.utils.hf_adapter import (
+    HuggingFaceGenerationAdapter,
+    load_pretrained_config,
+)
+from neuronx_distributed_inference.utils.random import set_random_seed
 from torch_neuronx.pyhlo.hlo_pb2 import HloModuleProto
 from torch_neuronx.testing.validation import logit_validation
 from transformers import AutoTokenizer, GenerationConfig
 
-from neuronx_distributed_inference.models.config import OnDeviceSamplingConfig, to_torch_dtype
-from neuronx_distributed_inference.modules.generation.sampling import prepare_sampling_params
-from neuronx_distributed_inference.utils import argparse_utils
-from neuronx_distributed_inference.utils.accuracy import get_generate_outputs
-from neuronx_distributed_inference.utils.hf_adapter import load_pretrained_config, HuggingFaceGenerationAdapter
-
-from neuronx_distributed_inference.utils.random import set_random_seed
-
-from neuronx_distributed_inference.utils.benchmark import create_submodule_latency_collectors, register_latency_collectors, generate_report, Benchmark
-
-# load the baseline model
-from neuronx_distributed_inference.models.qwen3_moe import modeling_qwen3_moe as baseline_qwen
-
-# use this to load the local qwen
-import importlib
-
-from test import parse_prompts, parse_prompt_data
+from test import parse_prompt_data, parse_prompts
 
 
 class QuantizationType(Enum):
@@ -49,23 +62,42 @@ BENCHMARK_REPORT_FILENAME = "benchmark_report.json"
 
 set_random_seed(0)
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
 
     # contest specific
-    parser.add_argument("--mode", choices=["evaluate_single", "evaluate_all", "validate", "generate", "generate_accuracy_baselines"])
+    parser.add_argument(
+        "--mode",
+        choices=[
+            "evaluate_single",
+            "evaluate_all",
+            "validate",
+            "generate",
+            "generate_accuracy_baselines",
+        ],
+    )
     parser.add_argument("--qwen", type=str, default="qwen")
     parser.add_argument("--enable-nki", action="store_true")
     parser.add_argument("--base-latency", type=float, default=526.15)
     parser.add_argument("--base-throughput", type=float, default=134.61)
     # new arguments for the leaderboard
-    parser.add_argument("--team-id", type=str, help="Team identifier for score tracking")
-    parser.add_argument("--member-id", type=str, help="Team member identifier for score tracking")
+    parser.add_argument(
+        "--team-id", type=str, help="Team identifier for score tracking"
+    )
+    parser.add_argument(
+        "--member-id", type=str, help="Team member identifier for score tracking"
+    )
 
     # Model path
-    parser.add_argument("--model-path", type=str, default="/home/ubuntu/Qwen3-30B-A3B/hf_model")
-    parser.add_argument("--compiled-model-path", type=str,
-                        default="/home/ubuntu/Qwen3-30B-A3B/traced_model")
+    parser.add_argument(
+        "--model-path", type=str, default="/home/ubuntu/Qwen3-30B-A3B/hf_model"
+    )
+    parser.add_argument(
+        "--compiled-model-path",
+        type=str,
+        default="/home/ubuntu/Qwen3-30B-A3B/traced_model",
+    )
 
     # Evaluation
     parser.add_argument("--benchmark", action="store_true")
@@ -100,7 +132,7 @@ def parse_args():
     parser.add_argument("--output-logits", action="store_true")
     parser.add_argument("--vocab-parallel", action="store_true")
     parser.add_argument("--layer-boundary-markers", action="store_true", default=False)
-    parser.add_argument("--platform-target", type=str, default='trn2')
+    parser.add_argument("--platform-target", type=str, default="trn2")
 
     # Attention
     parser.add_argument("--fused-qkv", action="store_true")
@@ -132,11 +164,16 @@ def parse_args():
     # Quantization
     parser.add_argument("--quantized", action="store_true")
     parser.add_argument("--quantized-checkpoints-path", type=str)
-    parser.add_argument("--quantization-type", type=str, choices=[t.value for t in QuantizationType])
+    parser.add_argument(
+        "--quantization-type", type=str, choices=[t.value for t in QuantizationType]
+    )
     parser.add_argument("--kv-cache-quant", action="store_true")
     parser.add_argument("--quantization-dtype", type=str)
-    parser.add_argument("--modules-to-not-convert-file", type=get_modules_to_not_convert_json,
-                        dest="modules_to_not_convert_lists")
+    parser.add_argument(
+        "--modules-to-not-convert-file",
+        type=get_modules_to_not_convert_json,
+        dest="modules_to_not_convert_lists",
+    )
 
     # MoE
     parser.add_argument("--capacity-factor", type=float)
@@ -152,9 +189,15 @@ def parse_args():
     parser.add_argument("--draft-model-path", type=str)
     parser.add_argument("--draft-model-tp-degree", type=int, default=None)
     parser.add_argument("--compiled-draft-model-path", type=str)
-    parser.add_argument("--enable-fused-speculation", action="store_true", default=False)
-    parser.add_argument("--enable-eagle-speculation", action="store_true", default=False)
-    parser.add_argument("--enable-eagle-draft-input-norm", action="store_true", default=False)
+    parser.add_argument(
+        "--enable-fused-speculation", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--enable-eagle-speculation", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--enable-eagle-draft-input-norm", action="store_true", default=False
+    )
     parser.add_argument("--speculation-length", type=int)
     parser.add_argument("--spec-batch-size", type=int)
 
@@ -165,7 +208,9 @@ def parse_args():
     parser.add_argument("--medusa-tree-json", type=load_json_file, dest="medusa_tree")
 
     # Token Tree
-    parser.add_argument("--token-tree-json", type=load_json_file, dest="token_tree_config")
+    parser.add_argument(
+        "--token-tree-json", type=load_json_file, dest="token_tree_config"
+    )
 
     # Parallelism
     parser.add_argument("--tp-degree", type=int, default=4)
@@ -184,11 +229,17 @@ def parse_args():
     parser.add_argument("--skip-sharding", action="store_true")
 
     # PA and CF
-    parser.add_argument("--enable-block-kv-layout", dest="is_block_kv_layout", action="store_true")
+    parser.add_argument(
+        "--enable-block-kv-layout", dest="is_block_kv_layout", action="store_true"
+    )
     parser.add_argument("--pa-num-blocks", type=int)
     parser.add_argument("--pa-block-size", type=int)
-    parser.add_argument("--enable-chunked-prefill", dest="is_chunked_prefill", action="store_true")
-    parser.add_argument("--enable-prefix-caching", dest="is_prefix_caching", action="store_true")
+    parser.add_argument(
+        "--enable-chunked-prefill", dest="is_chunked_prefill", action="store_true"
+    )
+    parser.add_argument(
+        "--enable-prefix-caching", dest="is_prefix_caching", action="store_true"
+    )
     parser.add_argument("--max-num-seqs", type=int)
 
     # Async
@@ -204,9 +255,15 @@ def parse_args():
     parser.add_argument("--max-lora-rank", type=int, default=16)
     parser.add_argument("--target-modules", nargs="+")
     parser.add_argument("--max-cpu-loras", type=int, default=1)
-    parser.add_argument("--lora-ckpt-path", dest="lora_ckpt_paths", type=str, action="append")
-    parser.add_argument("--lora-ckpt-path-cpu", dest="lora_ckpt_paths_cpu", type=str, action="append")
-    parser.add_argument("--lora-ckpt-json", dest="lora_ckpt_json", type=str, default=None)
+    parser.add_argument(
+        "--lora-ckpt-path", dest="lora_ckpt_paths", type=str, action="append"
+    )
+    parser.add_argument(
+        "--lora-ckpt-path-cpu", dest="lora_ckpt_paths_cpu", type=str, action="append"
+    )
+    parser.add_argument(
+        "--lora-ckpt-json", dest="lora_ckpt_json", type=str, default=None
+    )
     parser.add_argument("--adapter-id", dest="adapter_ids", type=str, action="append")
 
     # Kernels
@@ -215,12 +272,18 @@ def parse_args():
     parser.add_argument("--qkv-cte-nki-kernel-fuse-rope", action="store_true")
     parser.add_argument("--qkv-kernel-nbsd-layout", action="store_true")
     parser.add_argument("--attn-kernel-enabled", action="store_true")
-    parser.add_argument("--strided-context-parallel-kernel-enabled", action="store_true")
+    parser.add_argument(
+        "--strided-context-parallel-kernel-enabled", action="store_true"
+    )
     parser.add_argument("--mlp-kernel-enabled", action="store_true")
     parser.add_argument("--mlp-tkg-nki-kernel-enabled", action="store_true")
     parser.add_argument("--quantized-mlp-kernel-enabled", action="store_true")
     parser.add_argument("--fused-rmsnorm-skip-gamma", action="store_true")
-    parser.add_argument("--activation-quantization-type", type=str, choices=[e.value for e in ActivationQuantizationType])
+    parser.add_argument(
+        "--activation-quantization-type",
+        type=str,
+        choices=[e.value for e in ActivationQuantizationType],
+    )
     parser.add_argument("--rmsnorm-quantize-kernel-enabled", action="store_true")
     parser.add_argument("--quantize-clamp-bound", type=float, default=float("inf"))
     parser.add_argument("--mlp-kernel-fuse-residual-add", action="store_true")
@@ -228,7 +291,9 @@ def parse_args():
     parser.add_argument("--attn-tkg-nki-kernel-enabled", action="store_true")
     parser.add_argument("--attn-tkg-builtin-kernel-enabled", action="store_true")
     parser.add_argument("--attn-block-tkg-nki-kernel-enabled", action="store_true")
-    parser.add_argument("--attn-block-tkg-nki-kernel-cascaded-attention", action="store_true")
+    parser.add_argument(
+        "--attn-block-tkg-nki-kernel-cascaded-attention", action="store_true"
+    )
     parser.add_argument("--attn-block-tkg-nki-kernel-cache-update", action="store_true")
     parser.add_argument("--attn-block-cte-nki-kernel-enabled", action="store_true")
     parser.add_argument("--k-cache-transposed", action="store_true")
@@ -247,12 +312,22 @@ def parse_args():
     parser.add_argument("--on-cpu", action="store_true")
 
     # Report generation
-    parser.add_argument("--benchmark-report-path", type=str, default=BENCHMARK_REPORT_FILENAME)
+    parser.add_argument(
+        "--benchmark-report-path", type=str, default=BENCHMARK_REPORT_FILENAME
+    )
 
     # Debugging
-    parser.add_argument("--capture-indices", nargs="+", type=int, action=argparse_utils.StringOrIntegers, default=None)
+    parser.add_argument(
+        "--capture-indices",
+        nargs="+",
+        type=int,
+        action=argparse_utils.StringOrIntegers,
+        default=None,
+    )
     parser.add_argument("--input-capture-save-dir", type=str, default=None)
-    parser.add_argument("--cast-type", choices=["config", "as-declared"], default="config")
+    parser.add_argument(
+        "--cast-type", choices=["config", "as-declared"], default="config"
+    )
 
     # Optional demo arguments
     parser.add_argument("--skip-warmup", action="store_true")
@@ -260,17 +335,11 @@ def parse_args():
     parser.add_argument("--compile-only", action="store_true")
     parser.add_argument("--compile-dry-run", action="store_true")
     parser.add_argument("--hlo-debug", action="store_true")
-    parser.add_argument("--apply-seq-ids-mask", action='store_true')
+    parser.add_argument("--apply-seq-ids-mask", action="store_true")
     parser.add_argument("--input-start-offsets", nargs="+", default=None, type=int)
-    parser.add_argument("--enable-output-completion-notifications", action='store_true')
+    parser.add_argument("--enable-output-completion-notifications", action="store_true")
 
     return parser.parse_args()
-
-
-def validate_file_exists(path):
-    if not os.path.exists(path) or not os.path.isfile(path):
-        raise argparse.ArgumentError("Path must exist and be a file")
-    return path
 
 
 def load_json_file(json_path):
@@ -288,7 +357,9 @@ def get_modules_to_not_convert_json(json_path):
         modules_to_not_convert = data["modules_to_not_convert"]
     # Handle draft model modules if they exist
     if "draft_model" in data:
-        draft_model_modules_to_not_convert = data["draft_model"]["modules_to_not_convert"]
+        draft_model_modules_to_not_convert = data["draft_model"][
+            "modules_to_not_convert"
+        ]
     return modules_to_not_convert, draft_model_modules_to_not_convert
 
 
@@ -308,7 +379,9 @@ def prepare_inference(model_cls, args):
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
 
     if args.on_device_sampling:
-        config_kwargs["on_device_sampling_config"] = OnDeviceSamplingConfig(**config_kwargs)
+        config_kwargs["on_device_sampling_config"] = OnDeviceSamplingConfig(
+            **config_kwargs
+        )
 
     neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
@@ -319,13 +392,15 @@ def prepare_inference(model_cls, args):
     model = model_cls(args.model_path, config)
 
     if not args.skip_compile:
-
         # Compile and save model.
-        # to do, add save sharded checkpoint here 
+        # to do, add save sharded checkpoint here
         compiling_start_time = time.monotonic()
         print("\nCompiling and saving model...")
-        model.compile(args.compiled_model_path, debug=args.hlo_debug if hasattr(args, 'hlo_debug') else False)
-    
+        model.compile(
+            args.compiled_model_path,
+            debug=args.hlo_debug if hasattr(args, "hlo_debug") else False,
+        )
+
         compiling_end_time = time.monotonic()
         total_compiling_time = compiling_end_time - compiling_start_time
         print(f"Compiling and tracing time: {total_compiling_time} seconds")
@@ -349,7 +424,9 @@ def prepare_inference(model_cls, args):
         "temperature",
     ]
     generation_config_kwargs = {
-        k: getattr(args, k) for k in generation_config_args if getattr(args, k) is not None
+        k: getattr(args, k)
+        for k in generation_config_args
+        if getattr(args, k) is not None
     }
     generation_config.update(**generation_config_kwargs)
 
@@ -372,8 +449,8 @@ def generate_submodule_reports(latency_collectors, neuron_config, num_runs):
 
 def benchmark_sampling(model, tokenizer, generation_config, prompts):
 
-    print ('Beginning benchmark sampling')
-    
+    print("Beginning benchmark sampling")
+
     neuron_config = model.neuron_config
 
     sampling_params = prepare_sampling_params(
@@ -397,7 +474,7 @@ def benchmark_sampling(model, tokenizer, generation_config, prompts):
     modified_generation_config = copy.deepcopy(generation_config)
     if model.on_device_sampling:
         modified_generation_config.eos_token_id = []
-    
+
     inputs = tokenizer(prompts, padding=True, return_tensors="pt")
     input_ids = inputs.input_ids
     attention_mask = inputs.attention_mask
@@ -437,13 +514,13 @@ def benchmark_sampling(model, tokenizer, generation_config, prompts):
         neuron_config.max_batch_size,
         n_runs=e2e_benchmark.num_runs,
     )
-        
+
     report.update(
         generate_submodule_reports(
             latency_collectors, neuron_config, e2e_benchmark.num_runs
         )
     )
-    
+
     model.reset()
 
     print("Benchmark completed and its result is as following")
@@ -455,15 +532,27 @@ def benchmark_sampling(model, tokenizer, generation_config, prompts):
     return report
 
 
-def check_accuracy_logits(base_model, base_generation_config, neuron_model, tokenizer, generation_config, prompts, divergence_difference_tol, tol_map, num_tokens_to_check):
-    assert (prompts is not None)
+def check_accuracy_logits(
+    base_model,
+    base_generation_config,
+    neuron_model,
+    tokenizer,
+    generation_config,
+    prompts,
+    divergence_difference_tol,
+    tol_map,
+    num_tokens_to_check,
+):
+    assert prompts is not None
 
     inputs = tokenizer(prompts, padding=True, return_tensors="pt")
     initial_input_ids = inputs.input_ids
     initial_attention_mask = inputs.attention_mask
     seq_len = neuron_model.config.neuron_config.seq_len
 
-    neuron_model.config.neuron_config.max_new_tokens = seq_len - initial_input_ids.shape[1]
+    neuron_model.config.neuron_config.max_new_tokens = (
+        seq_len - initial_input_ids.shape[1]
+    )
 
     model = HuggingFaceGenerationAdapter(base_model)
     new_tokens = neuron_model.config.neuron_config.max_new_tokens
@@ -498,7 +587,7 @@ def check_accuracy_logits(base_model, base_generation_config, neuron_model, toke
             expected_token_ids.shape[1],
         ),
         dtype=torch.int32,
-   )
+    )
     extrapolated_attention_mask = torch.cat(
         (initial_attention_mask, expected_attention_mask), dim=1
     )
@@ -521,7 +610,9 @@ def check_accuracy_logits(base_model, base_generation_config, neuron_model, toke
         actual_logits = torch.stack(model_outputs.scores)
         actual_token_ids = actual_logits.argmax(dim=2).T
         actual_tokens = tokenizer.batch_decode(
-            actual_token_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            actual_token_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
         )
         print("Actual Output: ", actual_tokens, actual_token_ids)
         print("Actual Logits Shape: ", actual_logits.shape)
@@ -556,6 +647,7 @@ def run_generation(model, tokenizer, prompts, generation_config):
     print("Generated outputs:")
     for i, output_token in enumerate(output_tokens):
         print(f"Output {i}: {output_token}")
+
 
 def run_accuracy_check(
     base_model,
@@ -594,7 +686,7 @@ def count_nki_flop_ratio(hlo_path_context_enc, hlo_path_token_gen):
     nki_macs = 0
 
     def parse_hlo_file(hlo_file_path):
-        with open(hlo_file_path, 'rb') as f:
+        with open(hlo_file_path, "rb") as f:
             hlo_data = f.read()
 
         hlo_proto = HloModuleProto()
@@ -611,11 +703,11 @@ def count_nki_flop_ratio(hlo_path_context_enc, hlo_path_token_gen):
             for instruction in computation.instructions:
                 # Finding NKI ops
                 if instruction.opcode == "custom-call":
-                    if instruction.custom_call_target == 'AwsNeuronCustomNativeKernel':
+                    if instruction.custom_call_target == "AwsNeuronCustomNativeKernel":
                         try:
                             backend_config = instruction.backend_config
                             config = json.loads(base64.b64decode(backend_config))
-                            mac_count = int(config['mac_count'])
+                            mac_count = int(config["mac_count"])
                         except Exception:
                             mac_count = 0
 
@@ -646,12 +738,18 @@ def count_nki_flop_ratio(hlo_path_context_enc, hlo_path_token_gen):
 
                     # Process RHS shape
                     for i in range(len(rhs_shape.dimensions)):
-                        if i not in dnums.rhs_contracting_dimensions and \
-                           i not in dnums.rhs_batch_dimensions:
+                        if (
+                            i not in dnums.rhs_contracting_dimensions
+                            and i not in dnums.rhs_batch_dimensions
+                        ):
                             rhs_non_contracting_size *= rhs_shape.dimensions[i]
 
-                    mac_count = (lhs_batch * lhs_non_contracting_size *
-                                 lhs_contracting_size * rhs_non_contracting_size)
+                    mac_count = (
+                        lhs_batch
+                        * lhs_non_contracting_size
+                        * lhs_contracting_size
+                        * rhs_non_contracting_size
+                    )
                     hlo_mac += mac_count
 
         return hlo_mac, nki_mac
@@ -675,119 +773,156 @@ def count_nki_flop_ratio(hlo_path_context_enc, hlo_path_token_gen):
 
 
 # Added team_id, member_id and other OPTIONAL input parameters for connecting metric scores to team that submitted their nki-moe script
-def calculate_score(base_latency, base_throughput, accuracy, latency, throughput, nki_flop_ratio, team_id=None, member_id=None, qwen_module=None, platform_target=None):
-        
+def calculate_score(
+    base_latency,
+    base_throughput,
+    accuracy,
+    latency,
+    throughput,
+    nki_flop_ratio,
+    team_id=None,
+    member_id=None,
+    qwen_module=None,
+    platform_target=None,
+):
+
     increased_throughput = throughput / base_throughput
     reduced_latency = base_latency / latency
 
     # resetting nki_flop_ratio as the baseline solution uses NKI completely
     final_score = accuracy * reduced_latency * increased_throughput * nki_flop_ratio
 
-    print ('In this final score of ', final_score, ' the contestant got a breakdown as follows.')
-    print ('accuracy: ', accuracy)
-    print ('reduced_latency: ', reduced_latency)
-    print ('increased throughput: ',  increased_throughput)
-    print ('nki flop ratio: ', nki_flop_ratio)
+    print(
+        "In this final score of ",
+        final_score,
+        " the contestant got a breakdown as follows.",
+    )
+    print("accuracy: ", accuracy)
+    print("reduced_latency: ", reduced_latency)
+    print("increased throughput: ", increased_throughput)
+    print("nki flop ratio: ", nki_flop_ratio)
 
     # Write parameters to CSV file based on team_id and qwen_module identifier
     # Build filename with optional qwen_module suffix
-    platform_suffix = f'-{platform_target}' if platform_target else ''
+    platform_suffix = f"-{platform_target}" if platform_target else ""
     if team_id:
-        base_filename = f'{team_id}_qwen3-30b-a3b{platform_suffix}'
-        if qwen_module and qwen_module != 'qwen':
-            csv_filename = f'{base_filename}_{qwen_module}_score_records.csv'
+        base_filename = f"{team_id}_qwen3-30b-a3b{platform_suffix}"
+        if qwen_module and qwen_module != "qwen":
+            csv_filename = f"{base_filename}_{qwen_module}_score_records.csv"
         else:
-            csv_filename = f'{base_filename}_score_records.csv'
+            csv_filename = f"{base_filename}_score_records.csv"
     else:
-        if qwen_module and qwen_module != 'qwen':
-            csv_filename = f'qwen3-30b-a3b{platform_suffix}_{qwen_module}_score_records.csv'
+        if qwen_module and qwen_module != "qwen":
+            csv_filename = (
+                f"qwen3-30b-a3b{platform_suffix}_{qwen_module}_score_records.csv"
+            )
         else:
-            csv_filename = f'qwen3-30b-a3b{platform_suffix}_score_records.csv'
+            csv_filename = f"qwen3-30b-a3b{platform_suffix}_score_records.csv"
 
-    #check whether metrics CSV file exists locally
+    # check whether metrics CSV file exists locally
     file_exists = os.path.isfile(csv_filename)
-    
-    with open(csv_filename, 'a', newline='') as csvfile:
-        fieldnames = ['team_id', 'member_id', 'base_latency', 'base_throughput', 'accuracy', 'latency', 
-                      'throughput', 'nki_flop_ratio', 'increased_throughput', 'reduced_latency', 
-                      'final_score', 'timestamp']
+
+    with open(csv_filename, "a", newline="") as csvfile:
+        fieldnames = [
+            "team_id",
+            "member_id",
+            "base_latency",
+            "base_throughput",
+            "accuracy",
+            "latency",
+            "throughput",
+            "nki_flop_ratio",
+            "increased_throughput",
+            "reduced_latency",
+            "final_score",
+            "timestamp",
+        ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
+
         # Write column header if file is new
         if not file_exists:
             writer.writeheader()
-        
+
         # Write the record columns
-        writer.writerow({
-            'team_id': team_id,
-            'member_id': member_id,
-            'base_latency': base_latency,
-            'base_throughput': base_throughput,
-            'accuracy': accuracy,
-            'latency': latency,
-            'throughput': throughput,
-            'nki_flop_ratio': nki_flop_ratio,
-            'increased_throughput': increased_throughput,
-            'reduced_latency': reduced_latency,
-            'final_score': final_score,
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
-        })
-    
-    print(f'Inference Metrics from the current Test are written to file: {csv_filename}')
-    
+        writer.writerow(
+            {
+                "team_id": team_id,
+                "member_id": member_id,
+                "base_latency": base_latency,
+                "base_throughput": base_throughput,
+                "accuracy": accuracy,
+                "latency": latency,
+                "throughput": throughput,
+                "nki_flop_ratio": nki_flop_ratio,
+                "increased_throughput": increased_throughput,
+                "reduced_latency": reduced_latency,
+                "final_score": final_score,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+
+    print(
+        f"Inference Metrics from the current Test are written to file: {csv_filename}"
+    )
+
     return final_score
 
+
 def find_hlos():
-    
+
     # this path is defined by default NxD, the string matching works with Neuron SDK 2.27
-    enc_dir = '/tmp/nxd_model/context_encoding_model/_tp0_bk0'
-    ctx_enc = [f for f in os.listdir(enc_dir) if 'hlo_module' in f.lower()]
+    enc_dir = "/tmp/nxd_model/context_encoding_model/_tp0_bk0"
+    ctx_enc = [f for f in os.listdir(enc_dir) if "hlo_module" in f.lower()]
     assert len(ctx_enc) == 1
     ctx_rt = os.path.join(enc_dir, ctx_enc[0])
 
-    tkg_dir = '/tmp/nxd_model/token_generation_model/_tp0_bk0'
-    tkg_gen = [f for f in os.listdir(tkg_dir) if 'hlo_module' in f.lower()]
+    tkg_dir = "/tmp/nxd_model/token_generation_model/_tp0_bk0"
+    tkg_gen = [f for f in os.listdir(tkg_dir) if "hlo_module" in f.lower()]
     assert len(tkg_gen) == 1
     tkg_rt = os.path.join(tkg_dir, tkg_gen[0])
 
-    print ('Found your HLOs')
+    print("Found your HLOs")
 
     return ctx_rt, tkg_rt
+
 
 def main():
     args = parse_args()
     if not args.prompts:
         args.prompts = ["I believe the meaning of life is"]
-        
+
     args.batch_size = len(args.prompts)
     args.max_length = args.seq_len
-    args.tol_map = "{None: (1e-5, 0.05), 1000: (1e-5, 0.03), 50: (1e-5, 0.03), 5: (1e-5, 0.03)}"
+    args.tol_map = (
+        "{None: (1e-5, 0.05), 1000: (1e-5, 0.03), 50: (1e-5, 0.03), 5: (1e-5, 0.03)}"
+    )
 
     # points to your local model definition from qwen.py or qwen_with_nki.py
     if args.enable_nki:
         print("Loading qwen_with_nki module (NKI-accelerated RMSNorm enabled)")
         qwen = importlib.import_module("qwen_with_nki")
     else:
-        qwen = importlib.import_module(args.qwen)   
+        qwen = importlib.import_module(args.qwen)
 
     if args.mode == "generate":
-        model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
-        
-        run_generation(
-            model,
-            tokenizer,
-            args.prompts,
-            generation_config
+        model, tokenizer, generation_config = prepare_inference(
+            qwen.NeuronQwen3MoeForCausalLM, args
         )
 
+        run_generation(model, tokenizer, args.prompts, generation_config)
+
     elif args.mode == "validate":
-        if args.platform_target == 'trn2':
-            print ('Validation not supported for trn2, exiting.')
+        if args.platform_target == "trn2":
+            print("Validation not supported for trn2, exiting.")
             quit()
-            
-        model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
-        
-        base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
+
+        model, tokenizer, generation_config = prepare_inference(
+            qwen.NeuronQwen3MoeForCausalLM, args
+        )
+
+        base_model, _, base_generation_config = prepare_inference(
+            baseline_qwen.NeuronQwen3MoeForCausalLM, args
+        )
 
         passed = run_accuracy_check(
             base_model,
@@ -805,18 +940,21 @@ def main():
         print(f"Validation {status}.")
 
     elif args.mode == "evaluate_single":
-
-        if args.platform_target == 'trn2':
-            
-            model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
+        if args.platform_target == "trn2":
+            model, tokenizer, generation_config = prepare_inference(
+                qwen.NeuronQwen3MoeForCausalLM, args
+            )
 
             accuracy = 1
-            
-        elif args.platform_target == 'trn3': 
-        
-            model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
 
-            base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
+        elif args.platform_target == "trn3":
+            model, tokenizer, generation_config = prepare_inference(
+                qwen.NeuronQwen3MoeForCausalLM, args
+            )
+
+            base_model, _, base_generation_config = prepare_inference(
+                baseline_qwen.NeuronQwen3MoeForCausalLM, args
+            )
 
             accuracy = run_accuracy_check(
                 base_model,
@@ -839,7 +977,18 @@ def main():
 
         nki_flop_ratio = count_nki_flop_ratio(ctx_enc_hlo_path, tkg_gen_hlo_path)
 
-        score = calculate_score(args.base_latency, args.base_throughput, accuracy, latency, throughput, nki_flop_ratio, args.team_id, args.member_id, args.qwen, args.platform_target)
+        score = calculate_score(
+            args.base_latency,
+            args.base_throughput,
+            accuracy,
+            latency,
+            throughput,
+            nki_flop_ratio,
+            args.team_id,
+            args.member_id,
+            args.qwen,
+            args.platform_target,
+        )
         print(
             f"Prompt: {args.prompts[0]}\n"
             f"Final Score: {score}\n"
@@ -849,22 +998,22 @@ def main():
             f"\tNKI FLOPs Ratio: {nki_flop_ratio}"
         )
 
-    elif args.mode == 'evaluate_all' and args.platform_target == 'trn2':
-        
-        model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
+    elif args.mode == "evaluate_all" and args.platform_target == "trn2":
+        model, tokenizer, generation_config = prepare_inference(
+            qwen.NeuronQwen3MoeForCausalLM, args
+        )
 
         accuracy = 1
-        
+
         prompts = parse_prompts("prompts.txt")
         prompt_data = parse_prompt_data("prompt_data_trn2.csv")
         assert len(prompts) == len(prompt_data)
 
         total_score = 0
 
-        # to do - move both of these calls into batch mode 
+        # to do - move both of these calls into batch mode
         # Iterate through the prompts
         for i, prompt in enumerate(prompts):
-            
             data = prompt_data[i]
             base_latency = float(data[3])
             base_throughput = float(data[4])
@@ -875,10 +1024,21 @@ def main():
             throughput = report["e2e_model"]["throughput"]
 
             ctx_enc_hlo_path, tkg_gen_hlo_path = find_hlos()
-    
+
             nki_flop_ratio = count_nki_flop_ratio(ctx_enc_hlo_path, tkg_gen_hlo_path)
 
-            score = calculate_score(base_latency, base_throughput, accuracy, latency, throughput, nki_flop_ratio, args.team_id, args.member_id, args.qwen, args.platform_target)
+            score = calculate_score(
+                base_latency,
+                base_throughput,
+                accuracy,
+                latency,
+                throughput,
+                nki_flop_ratio,
+                args.team_id,
+                args.member_id,
+                args.qwen,
+                args.platform_target,
+            )
             print(
                 f"Prompt: {prompt}\n"
                 f"Final Score: {score}\n"
@@ -890,13 +1050,16 @@ def main():
             total_score += score
 
         print(f"\nTotal Score: {total_score}\n")
-        
-    elif args.mode == "evaluate_all" and args.platform_target == 'trn3':
-        
-        model, tokenizer, generation_config = prepare_inference(qwen.NeuronQwen3MoeForCausalLM, args)
 
-        base_model, _, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
-        
+    elif args.mode == "evaluate_all" and args.platform_target == "trn3":
+        model, tokenizer, generation_config = prepare_inference(
+            qwen.NeuronQwen3MoeForCausalLM, args
+        )
+
+        base_model, _, base_generation_config = prepare_inference(
+            baseline_qwen.NeuronQwen3MoeForCausalLM, args
+        )
+
         prompts = parse_prompts("prompts.txt")
         prompt_data = parse_prompt_data("prompt_data_trn3.csv")
         assert len(prompts) == len(prompt_data)
@@ -905,11 +1068,10 @@ def main():
 
         # Iterate through the prompts
         for i, prompt in enumerate(prompts):
-            
             data = prompt_data[i]
             base_latency = float(data[3])
             base_throughput = float(data[4])
-            
+
             accuracy = run_accuracy_check(
                 base_model,
                 base_generation_config,
@@ -928,10 +1090,21 @@ def main():
             throughput = report["e2e_model"]["throughput"]
 
             ctx_enc_hlo_path, tkg_gen_hlo_path = find_hlos()
-    
+
             nki_flop_ratio = count_nki_flop_ratio(ctx_enc_hlo_path, tkg_gen_hlo_path)
 
-            score = calculate_score(base_latency, base_throughput, accuracy, latency, throughput, nki_flop_ratio, args.team_id, args.member_id, args.qwen, args.platform_target)
+            score = calculate_score(
+                base_latency,
+                base_throughput,
+                accuracy,
+                latency,
+                throughput,
+                nki_flop_ratio,
+                args.team_id,
+                args.member_id,
+                args.qwen,
+                args.platform_target,
+            )
             print(
                 f"Prompt: {prompt}\n"
                 f"Final Score: {score}\n"
@@ -943,44 +1116,6 @@ def main():
             total_score += score
 
         print(f"\nTotal Score: {total_score}\n")
-
-    elif args.mode == "generate_accuracy_baselines":
-
-        base_model, tokenizer, base_generation_config = prepare_inference(baseline_qwen.NeuronQwen3MoeForCausalLM, args)
-
-        prompts = parse_prompts("prompts.txt")
-
-        # Iterate through the prompts
-        for i, prompt in enumerate(prompts):
-        
-            inputs = tokenizer(args.prompts, padding=True, return_tensors="pt")
-            initial_input_ids = inputs.input_ids
-            initial_attention_mask = inputs.attention_mask
-            seq_len = base_model.config.neuron_config.seq_len
-            
-            base_model.config.neuron_config.max_new_tokens = seq_len - initial_input_ids.shape[1]
-            
-            base_model_generative = HuggingFaceGenerationAdapter(base_model)
-            
-            new_tokens = base_model.config.neuron_config.max_new_tokens 
-            
-            with torch.inference_mode():
-                outputs = base_model_generative.generate(
-                    input_ids=initial_input_ids,
-                    attention_mask=initial_attention_mask,
-                    max_new_tokens=new_tokens,
-                    min_new_tokens=new_tokens,
-                    do_sample=False,
-                    return_dict_in_generate=True,
-                    output_scores=True,
-                    generation_config=base_generation_config,
-                )
-                
-            expected_logits = torch.stack(outputs.scores)
-    
-            # write logits to a file 
-            torch.save(expected_logits, f'expected_logits_{i}.pt')
-        
     else:
         assert False, "Undefined mode"
 
