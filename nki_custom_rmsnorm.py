@@ -20,7 +20,7 @@ def stream_shuffle_broadcast(src, dst):
         )
 
 
-@nki.jit(platform_target="trn2")
+@nki.jit()
 def nki_rmsnorm_kernel(input_tensor, weight, eps):
     """
     RMSNorm NKI kernel - migrated to NKI Beta 2 API.

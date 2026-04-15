@@ -888,6 +888,9 @@ def find_hlos():
 
 def main():
     args = parse_args()
+    
+    os.environ['NEURON_PLATFORM_TARGET_OVERRIDE'] = args.platform_target
+
     if not args.prompts:
         args.prompts = ["I believe the meaning of life is"]
 
