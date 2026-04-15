@@ -382,12 +382,13 @@ def prepare_inference(model_cls, args):
             **config_kwargs
         )
 
+    config_kwargs["blockwise_matmul_config"] = {'use_torch_block_wise': True}
     neuron_config = model_cls.get_neuron_config_cls()(**config_kwargs)
 
     config = model_cls.get_config_cls()(
         neuron_config, load_config=load_pretrained_config(args.model_path)
     )
-
+    
     model = model_cls(args.model_path, config)
 
     if not args.skip_compile:
