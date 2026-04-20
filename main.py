@@ -790,7 +790,7 @@ def calculate_score(
     reduced_latency = base_latency / latency
 
     # resetting nki_flop_ratio as the baseline solution uses NKI completely
-    final_score = accuracy * reduced_latency * increased_throughput * nki_flop_ratio
+    final_score = accuracy * reduced_latency * increased_throughput * (1 + nki_flop_ratio)
 
     print(
         "In this final score of ",
