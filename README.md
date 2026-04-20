@@ -111,7 +111,7 @@ The contest organizers will execute each team's submission across the twenty wit
 
 Rankings will be established by calculating the total normalized number of points per team, where points are normalized against the baseline.
 
-We define **points** as **Accuracy** (binary) **\* Reduced Latency \* Increased Throughput \* Normalized NKI FLOPS**, where:
+We define **points** as **Accuracy** (binary) **\* Reduced Latency \* Increased Throughput \* (1 + Normalized NKI FLOPS)**, where:
 
 * **Accuracy** = 1 if accuracy matches or exceeds a predetermined threshold, 0 otherwise  
 * **Reduced Latency** = Reference implementation E2E latency divided by submission E2E latency  
