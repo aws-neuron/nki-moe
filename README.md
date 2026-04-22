@@ -21,7 +21,7 @@ For those of you who have developed NKI kernels as part of your solution, thank 
 We will also be making additional credit codes available. Please reach out to us at nki-mlsys-2026@amazon.com with any questions.
 
 ### Round two: Trn3 in April
-Round two of the competition focuses on Trn3. We will take submissions from April 14-24. Each of the top 15 teams from round one will receive access to a dedicated single-chip Trn3 instance. The evaluation environment will use Neuron SDK 2.29 with a single Trn3 chip.
+Round two of the competition focuses on Trn3. We will take submissions from April 14-29. Each of the top 15 teams from round one will receive access to a dedicated single-chip Trn3 instance. The evaluation environment will use Neuron SDK 2.29 with a single Trn3 chip.
 
 ## Submission guidelines
 1. Participants should plan to replace the `qwen_with_nki.py` file with your own kernels and model code.
